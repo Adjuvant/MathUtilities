@@ -1,71 +1,72 @@
-﻿public class KalmanFilter {
+﻿using StarMathLib;
+public class KalmanFilter {
   //The current state of the system as seen by the filter. x_k
-  public float[,] StateMatrix;
+  public double[,] StateMatrix;
   //How fucked up the state probably is. P_k
-  public float[,] ErrorCovarianceMatrix;
+  public double[,] ErrorCovarianceMatrix;
 
   //The Kinematic Equations, predicts how the state would evolve naturally without input. F_k
-  public float[,] StateTransitionMatrix;
+  public double[,] StateTransitionMatrix;
   //Which things in the state matrix we're actually measuring. H_k
-  public float[,] MeasurementMatrix;
+  public double[,] MeasurementMatrix;
   //How bad our prediction model is at telling us what is actually going on. Q_k
-  public float[,] ProcessNoiseMatrix;
+  public double[,] ProcessNoiseMatrix;
   //How much noise is inherent to the measurement (not what is actually happening). R_k
-  public float[,] MeasurementNoiseMatrix;
+  public double[,] MeasurementNoiseMatrix;
 
-  public KalmanFilter(float[,] InitialState, float[,] Measurement, float[,] ProcessNoise, float[,] MeasurementN, float initialError) {
+  public KalmanFilter(double[,] InitialState, double[,] Measurement, double[,] ProcessNoise, double[,] MeasurementN, double initialError) {
     StateMatrix = InitialState;
     MeasurementMatrix = Measurement;
     ProcessNoiseMatrix = ProcessNoise;
     MeasurementNoiseMatrix = MeasurementN;
 
-    //Initial Error measurement; 0f = slow initial convergence, 1f = fast initial convergence
-    ErrorCovarianceMatrix = MatrixExtensions.identity(9).mult(initialError);
+    //Initial Error measurement; 0.0 = slow initial convergence, 1.0 = fast initial convergence
+    ErrorCovarianceMatrix = /*MatrixExtensions*/StarMath.makeIdentity(9).multiply(initialError);
   }
 
-  public void PredictState(float deltaTime) {
+  public void PredictState(double deltaTime) {
     StateTransitionMatrix = MakeStateTransitionMatrix(deltaTime);
     //Predict the State according to the Kinematic Equations in the StateTransition Matrix
-    StateMatrix = StateTransitionMatrix.mult(StateMatrix);
+    StateMatrix = StateTransitionMatrix.multiply(StateMatrix);
     //Predict the Error according to the Kinematic Equations and the Process Noise
-    ErrorCovarianceMatrix = (StateTransitionMatrix.mult(ErrorCovarianceMatrix).mult(StateTransitionMatrix.transpose())).add(ProcessNoiseMatrix);
+    ErrorCovarianceMatrix = (StateTransitionMatrix.multiply(ErrorCovarianceMatrix).multiply(StateTransitionMatrix.transpose())).add(ProcessNoiseMatrix);
   }
 
   //Predict the State according to the Kinematic Equations in the StateTransition Matrix without changing the state of the filter!
-  public float[,] SafePredictState(float deltaTime) {
-    return MakeStateTransitionMatrix(deltaTime).mult(StateMatrix);
+  public double[,] SafePredictState(double deltaTime) {
+    return MakeStateTransitionMatrix(deltaTime).multiply(StateMatrix);
   }
 
-  public void UpdateState(float[,] newMeasurements) {
+  public void UpdateState(double[,] newMeasurements) {
     //The Current Measurement
-    float[,] CurrentObservation = MeasurementMatrix.mult(newMeasurements).add(MeasurementNoiseMatrix);
+    double[,] CurrentObservation = MeasurementMatrix.multiply(newMeasurements);//.add(MeasurementNoiseMatrix);
     //The difference (or "residual") between the predicted state and the measured state
-    float[,] MeasurementResidualeMatrix = CurrentObservation.sub(MeasurementMatrix.mult(StateMatrix));
+    double[,] MeasurementResidualeMatrix = CurrentObservation.subtract(MeasurementMatrix.multiply(StateMatrix));
     //How fucked up that residual probably is
-    float[,] ResidualCovarianceMatrix = ((MeasurementMatrix.mult(ErrorCovarianceMatrix)).mult(MeasurementMatrix.transpose())).add(MeasurementNoiseMatrix);
+    double[,] ResidualCovarianceMatrix = ((MeasurementMatrix.multiply(ErrorCovarianceMatrix)).multiply(MeasurementMatrix.transpose()));//.add(MeasurementNoiseMatrix);
     //THE OPTIMAL KALMAN GAIN "choir of cherubs*
-    float[,] OptimalKalmanGain = (ErrorCovarianceMatrix.mult(MeasurementMatrix.transpose())).mult(ResidualCovarianceMatrix.invert()); //oh shit need to invert a matrix
+    double[,] OptimalKalmanGain = (ErrorCovarianceMatrix.multiply(MeasurementMatrix.transpose())).multiply(SimpleMatrices.MatrixExtensions.inverse(ResidualCovarianceMatrix)); //oh shit broken inversion makes it work??
 
     //wait... all it's doing here is adding the measurement residual multiplied by the gain to the state
     //WHAT A FUCKIN GYP, ALL THIS TROUBLE, ALL THESE MATRICES... GAH.
     //Should have just used some for-loops
-    StateMatrix = StateMatrix.add(OptimalKalmanGain.mult(MeasurementResidualeMatrix));
+    StateMatrix = StateMatrix.add(OptimalKalmanGain.multiply(MeasurementResidualeMatrix));
 
     //Update the fucked-upitude of the state
-    float[,] GainTimesMeasurement = OptimalKalmanGain.mult(MeasurementMatrix);
-    ErrorCovarianceMatrix = MatrixExtensions.identity(GainTimesMeasurement.GetLength(1)).sub(GainTimesMeasurement).mult(ErrorCovarianceMatrix);
+    double[,] GainTimesMeasurement = OptimalKalmanGain.multiply(MeasurementMatrix);
+    ErrorCovarianceMatrix = /*MatrixExtensions*/StarMath.makeIdentity(GainTimesMeasurement.GetLength(1)).subtract(GainTimesMeasurement).multiply(ErrorCovarianceMatrix);
   }
 
-  public float[,] MakeStateTransitionMatrix(float deltaTime) {
-    return new float[,]
-     {{1f, 0f, 0f, deltaTime, 0f, 0f, 0.5f*deltaTime*deltaTime, 0f, 0f}, //XPos
-			{0f, 1f, 0f, 0f, deltaTime, 0f, 0f, 0.5f*deltaTime*deltaTime, 0f}, //YPos
-			{0f, 0f, 1f, 0f, 0f, deltaTime, 0f, 0f, 0.5f*deltaTime*deltaTime}, //ZPos
-			{0f, 0f, 0f, 1f, 0f, 0f, deltaTime, 0f, 0f}, //XVel
-			{0f, 0f, 0f, 0f, 1f, 0f, 0f, deltaTime, 0f}, //YVel
-			{0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, deltaTime}, //ZVel
-			{0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f}, //Constant XAccel
-			{0f, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f}, //Constant YAccel
-			{0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 1f}}; //Constant ZAccel
+  public double[,] MakeStateTransitionMatrix(double deltaTime) {
+    return new double[,]
+     {{1.0, 0.0, 0.0, deltaTime, 0.0, 0.0, 0.5*deltaTime*deltaTime, 0.0, 0.0}, //XPos
+			{0.0, 1.0, 0.0, 0.0, deltaTime, 0.0, 0.0, 0.5*deltaTime*deltaTime, 0.0}, //YPos
+			{0.0, 0.0, 1.0, 0.0, 0.0, deltaTime, 0.0, 0.0, 0.5*deltaTime*deltaTime}, //ZPos
+			{0.0, 0.0, 0.0, 1.0, 0.0, 0.0, deltaTime, 0.0, 0.0}, //XVel
+			{0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, deltaTime, 0.0}, //YVel
+			{0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, deltaTime}, //ZVel
+			{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0}, //Constant XAccel
+			{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0}, //Constant YAccel
+			{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0}}; //Constant ZAccel
   }
 }
